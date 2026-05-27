@@ -1,82 +1,81 @@
-# ADR-003 — Circuit Breaker and Stale Stock Indicator for WMS Calls
+# ADR-003 — Circuit Breaker on Carrier API with Fallback Rates
 
-**Status:** Accepted  
-**Date:** 2026-05-03  
+**Status:** Accepted
+**Date:** 2026-05-03
 **Scenario:** C — Omnichannel Commerce Core (VerdeMart)
 
 ---
 
 ## Context
 
-Commerce Core holds a replica of physical stock data received from the WMS. This replica is the basis for stock availability shown to customers on the storefront and used during checkout.
+During checkout, Commerce Core must show shipping rates to the customer. These rates come from an external Carrier API (UPS, FedEx, DHL — simulated by WireMock in this evolution).
 
-When the WMS is unavailable or slow, Commerce Core has two options:
-1. Block or fail any operation that requires fresh stock data
-2. Serve the last-known (stale) stock data while making the staleness visible
+The Carrier API is a synchronous HTTP dependency at the worst possible moment: the customer is on the checkout page, waiting for a price. If the carrier is slow, the checkout page hangs. If it returns errors, checkout fails. In either case, the customer abandons the cart and revenue is lost.
 
 **Drivers:**
-- QAS-02: WMS unavailability must not prevent customers from completing checkout
-- QAS-04: When stock data is stale, the system must make this visible — not silently serve potentially wrong numbers
+- QAS-3: Carrier API degradation must not collapse checkout — checkout rate must stay ≥ 97% during carrier degradation, with fallback in < 100 ms
+
+WMS reconnection and stock reconciliation are handled by a different mechanism (see ADR-002 outbox + ADR-005 idempotent consumers), driven by QAS-5. This ADR is specifically about the synchronous Carrier dependency at checkout.
 
 ---
 
 ## Decision
 
-Implement a **circuit breaker** on all outbound calls from Commerce Core to the WMS, combined with a **stale stock indicator** in the storefront UI.
+Wrap all outbound calls from the **Carrier Adapter** in a **circuit breaker** with a **cached / default fallback rate**.
 
-1. `StockQuantity` on `Product` is extended with two metadata fields: `StockLastUpdatedUtc` (datetime) and `StockIsStale` (bool)
-2. A `ScheduleTask` runs every 5 minutes and marks any stock entry as stale if `StockLastUpdatedUtc` is older than 10 minutes
-3. When the circuit is open (WMS unreachable), the storefront serves the stale replica and shows a visible indicator: _"Stock availability may not reflect the latest warehouse data"_
-4. When the circuit closes (WMS recovers), pending reconciliation runs automatically
+The Carrier Adapter has three states:
 
-The circuit breaker has three states:
-- **Closed (normal):** WMS calls succeed; stock is fresh
-- **Open (WMS down):** Calls are short-circuited; stale replica is served with indicator
-- **Half-open (recovery):** One probe call is made; if it succeeds, the circuit closes
+- **Closed (normal):** Carrier API is called synchronously; live rates are shown
+- **Open (carrier degraded):** Calls are short-circuited; a cached/default fallback rate is returned in < 100 ms
+- **Half-open (recovery):** A single probe call is made; if it succeeds, the circuit closes
+
+The circuit opens after a configurable failure threshold (e.g., 3 consecutive failures or 50% failure rate over a 10 s window) and a configurable response-time threshold (e.g., > 2 s). Fallback rates are pre-computed per shipping zone and cached on application startup; they are conservative (slight over-estimate) so the merchant is not under-charging during a degradation window.
 
 ---
 
 ## Rationale
 
-The business impact of blocking checkout when the WMS is down (lost revenue, customer frustration) outweighs the risk of a customer purchasing an item that has slightly stale stock data. The stale indicator is the honest signal to both customers and operations teams that the data may not be perfectly current.
+The business impact of a Carrier API outage during checkout is direct and measurable revenue loss. Even brief carrier slowness translates into elevated checkout abandonment. The architecture must contain the failure rather than propagate it to the customer.
 
-This is a deliberate **availability over strict consistency** trade-off, driven by QAS-02. The scenario explicitly requires that Commerce Core "remain useful when surrounding operational systems are stale, delayed, or temporarily unavailable."
+A circuit breaker with fallback is the minimal pattern that satisfies QAS-3: it short-circuits the failing dependency in well under the 100 ms budget, keeps checkout completing, and gives operations a clear signal (circuit-open metric / dashboard) that the carrier is degraded.
+
+The fallback is a **cached default**, not a "stock indicator" style staleness flag. Shipping rates are commercial offers — they must be a single number on the page, not a "may be stale" warning. The conservative bias on cached rates is the trade-off: customer sees a rate, may be slightly higher than the live one, but checkout completes.
 
 ---
 
 ## Rejected Alternatives
 
-### Alternative 1: Block checkout until WMS confirms current stock
+### Alternative 1: Block checkout until the carrier responds
 
-Before checkout completes, make a synchronous HTTP call to the WMS to verify stock is actually available.
+Wait synchronously for the Carrier API, regardless of how slow it is.
 
-**Rejected because:** This creates a hard availability dependency — WMS downtime directly causes checkout failures. This violates QAS-02. It also adds latency to every checkout even when WMS is healthy.
+**Rejected because:** This is the baseline behaviour the scenario explicitly identifies as fragile (Pressure Point: "Carrier API Fragility"). It directly violates QAS-3.
 
-### Alternative 2: Always trust the internal stock replica with no staleness signal
+### Alternative 2: Skip shipping cost at checkout, charge after fulfilment
 
-Serve the replica unconditionally. If it's stale, the customer sees wrong numbers but the UI shows nothing unusual.
+Let the customer complete checkout without seeing a shipping cost; compute it after the warehouse picks the order.
 
-**Rejected because:** Silent inconsistency is worse than visible staleness. Operations teams cannot act on what they cannot see. Customers who purchase out-of-stock items create fulfillment failures and refund costs. QAS-04 explicitly requires staleness to be visible.
+**Rejected because:** Hiding a price from the customer is a commercial/UX regression, not an architectural fix. Customers expect to see the total before paying. Also generates downstream chargebacks and finance reconciliation problems.
 
-### Alternative 3: Disable purchases for affected products when WMS is unreachable
+### Alternative 3: Retry the Carrier API a few times before failing
 
-If WMS cannot confirm stock, mark the product as unavailable for purchase.
+Catch the failure and retry 2–3 times with backoff before showing the error.
 
-**Rejected because:** This is effectively the same as Alternative 1 from the customer's perspective. A retailer whose entire catalog becomes unpurchasable during a WMS outage suffers the same revenue impact as one that blocks checkout. The stale-with-indicator approach is strictly better for most scenarios.
+**Rejected because:** Retries amplify load on an already degraded dependency and extend the latency budget the customer experiences. A circuit breaker is the strictly better pattern: fail fast, fall back, recover when probes succeed.
 
-### Alternative 4: Two-tier stock: "committed" vs "available"
+### Alternative 4: Use the Reservation API / stock-replica staleness model for carrier rates
 
-Maintain a separate "safe to sell" quantity that is conservative (e.g., stock - in-flight orders - safety buffer) so that even stale data is unlikely to cause overselling.
+Same approach as the WMS stock replica — serve last-known rates with an "as of" indicator.
 
-**Not rejected, but deferred:** This is a valid enhancement that strengthens the model. It is deferred to Phase 4 of the roadmap because it requires changes to the ordering and fulfillment flows and is not required for the core architectural demonstration.
+**Rejected because:** Shipping rates are not state to be reconciled, they are quotes priced at request time. They expire, they vary by promotion, and a stale rate cannot be "corrected" by a later event. A circuit-breaker + cached fallback is the right primitive for this dependency; replica + staleness flag is the right primitive for WMS stock.
 
 ---
 
 ## Consequences
 
-- **Positive:** Checkout availability is not coupled to WMS availability
-- **Positive:** Staleness is explicit and observable — no silent inconsistency
-- **Positive:** Operations team can act on stale data signals before customers are impacted
-- **Negative:** Customers may occasionally see slightly inaccurate stock levels
-- **Negative:** In extreme cases (WMS down for hours), overselling is possible — mitigated by safety buffer (deferred to Phase 4)
-- **Negative:** Stale indicator requires UI changes in nopCommerce product pages and cart
+- **Positive:** Checkout availability is not coupled to Carrier API availability
+- **Positive:** Fallback latency (< 100 ms) is well inside the customer-perceived budget
+- **Positive:** Circuit-open state is observable in the Ops Dashboard
+- **Negative:** Fallback rates may be slightly higher than live rates — small margin impact, no customer-visible inconsistency
+- **Negative:** Requires maintaining a cached rate table per shipping zone (refreshed periodically when the circuit is closed)
+- **Mitigation:** Cached rates are refreshed every N minutes while the circuit is closed; an alert fires if the circuit stays open longer than a configurable window

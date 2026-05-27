@@ -14,7 +14,9 @@ When Commerce Core processes an order, two things must happen:
 
 These two operations span two different systems (SQL database and RabbitMQ). If the database write succeeds but the RabbitMQ publish fails (network glitch, broker restart), the external systems never learn about the order. If we try to compensate by publishing before saving, a DB failure leaves a ghost event. This is the **dual-write problem**.
 
-**Driver:** QAS-01 requires that order events reach ERP even after an ERP outage of up to 30 minutes — which means event delivery must be durable and not depend on both the DB and broker being healthy at exactly the same instant.
+**Drivers:**
+- QAS-1: ERP downtime must not block customer checkout — event delivery must be durable and decoupled from broker/ERP availability
+- QAS-5: Stock reconciliation after WMS reconnection — buffered events must survive transient broker failures without being lost or duplicated
 
 ---
 

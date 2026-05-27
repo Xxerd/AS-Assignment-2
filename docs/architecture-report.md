@@ -1,6 +1,15 @@
 # VerdeMart — Architecture Report
 ## Architectural Evolution of nopCommerce · Scenario C: Omnichannel Commerce Core
 
+**Group Assignment 02 — Software Architectures · Master in Informatics Engineering · UA**
+**Checkpoint Date:** 05/05/2026
+
+**Authors:**
+- Francisco Pinto — 113763
+- Bruno Meixedo — 113372
+- André Alves — 113962
+- José Marques — 114321
+
 ---
 
 ## 1. Scenario Choice
@@ -13,12 +22,15 @@ VerdeMart began as an online retailer running nopCommerce as a web storefront. T
 
 When the WMS says stock is 0 but nopCommerce says 5, when the ERP is down during peak hours, when a POS sale happens offline — what does the commerce core do? That is the problem this evolution must solve.
 
-**Why this scenario matters from a business perspective:**
+### Importance from a Business Perspective
 
-- Overselling due to stock inconsistency across channels causes fulfillment failures and customer refunds
-- An ERP outage should not block online checkouts — revenue loss is direct and measurable
-- A customer who bought online and wants to return in-store cannot be served if order state is not visible cross-channel
-- Operations teams are blind to inconsistency unless the system makes it visible
+| Concern | Impact |
+|---|---|
+| **Overselling** | Stock inconsistency across channels causes fulfillment failures and customer refunds |
+| **Outage** | An ERP outage should not block online checkouts — revenue loss is direct and measurable |
+| **No Event Trail** | Without domain events, cross-channel reconciliation after failures is manual and error-prone |
+| **Cross-channel visibility** | A customer who bought online and wants to return in-store cannot be served if order state is not visible cross-channel |
+| **Operational observability** | Operations teams are blind to inconsistency unless the system makes it visible |
 
 ---
 
@@ -34,15 +46,15 @@ Nop.Core → Nop.Data → Nop.Services → Nop.Web.Framework → Nop.Web
 
 All commerce data (products, inventory, orders, customers, shipments) is owned and managed internally. There are no integrations with external operational systems. The system is designed as a self-contained storefront.
 
-### How this conflicts with the VerdeMart scenario
+### Gap Analysis
 
-| VerdeMart Need | nopCommerce Baseline | Gap |
+| nopCommerce Baseline | VerdeMart Need | Gap |
 |---|---|---|
-| Cross-channel stock visibility | Stock is a single `StockQuantity` field on `Product` entity, managed internally | No mechanism to receive or reflect WMS stock updates |
-| ERP order notification | Orders are created and tracked entirely in nopCommerce DB | No event publishing to external systems |
-| POS awareness | No concept of in-store sales | Online and physical stock are independent silos |
-| Fulfillment tracking | `Shipment` entity tracks internal state only | No incoming updates from warehouse or carriers |
-| Stale data visibility | Cache invalidation is internal | No staleness indicator when external data is outdated |
+| Stock is a single `StockQuantity` field on `Product` entity, managed internally | Cross-channel stock visibility | No mechanism to receive or reflect WMS stock updates |
+| Orders are created and tracked entirely in nopCommerce DB | ERP order notification | No event publishing to external systems |
+| No concept of in-store sales | POS awareness | Online and physical stock are independent silos |
+| `Shipment` entity tracks internal state only | Fulfillment tracking | No incoming updates from warehouse or carriers |
+| Cache invalidation is internal | Stale data visibility | No staleness indicator when external data is outdated |
 
 ### Architectural seams identified (injection points)
 
@@ -53,20 +65,22 @@ These are the existing boundaries in nopCommerce where the integration layer can
 - **`IShipmentService`** (`Nop.Services/Shipping/`) — fulfillment state
 - **`IEventPublisher`** (`Nop.Core/Events/`) — fires domain events; already used for cache invalidation. This is the outbound integration point.
 - **`IConsumer<TEvent>`** — consumers are auto-discovered at startup; this is the inbound integration point for external events
-- **`IScheduleTask`** — background jobs for periodic reconciliation
+- **`IScheduleTask`** — background jobs for periodic reconciliation and outbox publishing
 
-### Pressure points
+### Pressure Points
 
-1. **Dual-write risk**: if an order is saved and then the ERP notification fails, the systems diverge silently
-2. **Availability dependency**: if the WMS must confirm stock before checkout completes, WMS downtime blocks purchases
-3. **No staleness signal**: cached stock has no age indicator — the UI cannot tell the customer that data may be stale
-4. **No reconciliation**: there is no mechanism to detect and correct drift between nopCommerce stock and WMS stock
+| Pressure Point | Description |
+|---|---|
+| **Inventory Race Condition** | Web and POS channels can simultaneously reduce stock for the same item with no cross-channel reservation mechanism |
+| **Stale Stock Visibility** | WMS updates (receipts, picks, damage writes) are not propagated back to nopCommerce in near-real-time |
+| **Carrier API Fragility** | Synchronous carrier calls at checkout make shipping rate retrieval a single point of failure |
+| **Synchronous ERP Coupling** | Any ERP call at order time creates a hard dependency — ERP downtime equals checkout failure |
 
 ---
 
 ## 3. Domain and Boundary Model
 
-### Relevant Subdomains
+### Subdomains
 
 | Subdomain | Type | Description |
 |---|---|---|
@@ -74,127 +88,102 @@ These are the existing boundaries in nopCommerce where the integration layer can
 | Order Management | Core | Checkout, order lifecycle, payment |
 | Inventory | Core (shared) | Stock levels, reservations |
 | Fulfillment | Supporting | Pick/pack/ship execution |
-| ERP / Finance | Generic | Financial records, purchase orders |
-| POS | Supporting | In-store sales and returns |
-| Identity | Generic | Authentication across channels |
+| POS | Supporting | In-store sales and stock consumption. OSPOS stub. |
+| ERP / Finance | Supporting | Financial records, purchase orders |
+| Customer Identity | Generic | Customer data, authentication. Keycloak + nopCommerce customer model. |
+| Carrier / Shipping | Generic | Rate retrieval and shipment tracking. Simulated via WireMock. |
 
 ### Bounded Contexts
 
 ```
-┌─────────────────────────────────────────────────────┐
-│              Commerce Core (nopCommerce)             │
-│                                                     │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────┐  │
-│  │   Catalog   │  │    Orders    │  │ Inventory │  │
-│  │  & Pricing  │  │  & Checkout  │  │  Replica  │  │
-│  └─────────────┘  └──────────────┘  └───────────┘  │
-│                          │                          │
-│              ┌───────────────────────┐              │
-│              │  Integration Layer    │              │
-│              │  (Adapters + Outbox)  │              │
-│              └───────────┬───────────┘              │
-└──────────────────────────┼──────────────────────────┘
-                           │ RabbitMQ
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-┌───────▼──────┐  ┌────────▼───────┐  ┌──────▼──────┐
-│ WMS          │  │ ERP            │  │ POS         │
-│ (OpenBoxes   │  │ (ERPNext stub) │  │ (stub)      │
-│  stub)       │  │                │  │             │
-└──────────────┘  └────────────────┘  └─────────────┘
+┌────────────────────────────────────────────────────────────────┐
+│                Commerce Core — nopCommerce                      │
+│                                                                │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │  Catalog    │  │    Order     │  │  Inventory Replica   │  │
+│  │ & Pricing   │  │ Management   │  │  (read-only, owned   │  │
+│  │ (Core)      │  │ (Core)       │  │   by WMS truth)      │  │
+│  └─────────────┘  └──────┬───────┘  └──────────────────────┘  │
+│                          │                                     │
+│  ┌─────────────┐    ┌────▼─────────────────────────────┐      │
+│  │ Customer &  │    │  Integration Layer               │      │
+│  │ Identity    │    │  Adapters + Outbox               │      │
+│  │ (Keycloak + │    │  Publishes domain events ·       │      │
+│  │ nopCommerce)│    │  at-least-once delivery          │      │
+│  └─────────────┘    └────────────┬─────────────────────┘      │
+└──────────────────────────────────┼─────────────────────────────┘
+                                   │  publish
+                                   ▼
+                          ┌────────────────┐
+                          │   RabbitMQ     │
+                          │ Async event bus│
+                          └───┬───┬────┬───┘
+        order.placed ─────────┤   │    └─── shipment.requested
+        stock.updated  ◄──────┘   ▼
+                                  │
+   ┌──────────────┬───────────────┼───────────────┬──────────────┐
+   ▼              ▼               ▼               ▼              ▼
+┌────────┐   ┌─────────┐    ┌─────────┐    ┌───────────┐   ┌──────────┐
+│  WMS   │   │   ERP   │    │   POS   │    │  Carrier  │   │ Keycloak │
+│OpenBoxes│  │ ERPNext │    │  OSPOS  │    │  WireMock │   │          │
+└────────┘   └─────────┘    └─────────┘    └───────────┘   └──────────┘
 ```
 
-### Ownership of Major Responsibilities
+### Data Ownership
 
-| Responsibility | Owner | Notes |
-|---|---|---|
-| Catalog truth | Commerce Core | Products, prices, categories |
-| Order truth | Commerce Core | Single source of truth for order state |
-| Physical stock truth | WMS | Commerce Core holds a timestamped replica |
-| Financial records | ERP | Receives order events asynchronously |
-| In-store sales | POS | Sends stock adjustment events |
-| Auth tokens | Keycloak | Cross-channel identity |
+| Data | Owned by |
+|---|---|
+| Product catalog | Commerce Core |
+| Order state | Commerce Core |
+| Physical stock (truth) | WMS (OpenBoxes) |
+| Stock Replica (available to sell) | Commerce Core |
+| Financial records | ERP (ERPNext) |
+| Reservations | Commerce Core |
+| Carrier rates | Carrier API |
+| Customer identity | Keycloak + Commerce Core customer model |
 
 ---
 
 ## 4. Quality Attribute Scenarios
 
-### QAS-01 — Availability during ERP outage
-
-| Field | Value |
-|---|---|
-| **Source** | Customer |
-| **Stimulus** | Places an order during ERP system outage |
-| **Environment** | ERP has been unavailable for up to 30 minutes |
-| **Artifact** | Order service + integration layer |
-| **Response** | Order is created successfully; ERP notification is queued in the outbox |
-| **Measure** | Checkout completes in < 2s; ERP receives the event within 60s of recovery |
-
-### QAS-02 — Resilience when WMS is unavailable
-
-| Field | Value |
-|---|---|
-| **Source** | Customer |
-| **Stimulus** | Attempts to purchase a product during WMS outage |
-| **Environment** | WMS has been unreachable for > 5 minutes (circuit open) |
-| **Artifact** | Inventory service + circuit breaker |
-| **Response** | Checkout proceeds using last-known stock with a staleness indicator; order enters "fulfillment pending" state |
-| **Measure** | No checkout blocked; stale indicator visible; pending orders forwarded automatically when WMS recovers |
-
-### QAS-03 — Stock consistency after warehouse pick
-
-| Field | Value |
-|---|---|
-| **Source** | WMS |
-| **Stimulus** | Item is picked for an order, reducing physical stock |
-| **Environment** | Normal operating conditions |
-| **Artifact** | RabbitMQ consumer in Commerce Core |
-| **Response** | nopCommerce inventory replica is updated |
-| **Measure** | Update reflected in storefront within 5 seconds under normal conditions; within 5 minutes under degraded messaging |
-
-### QAS-04 — Observability of stale data
-
-| Field | Value |
-|---|---|
-| **Source** | Operations team |
-| **Stimulus** | Stock data has not been refreshed for > 10 minutes |
-| **Environment** | Messaging pipeline delayed or consumer behind |
-| **Artifact** | Inventory replica + staleness metadata |
-| **Response** | System marks stock as stale; operations dashboard shows which SKUs have stale data and since when |
-| **Measure** | 100% of stale stock entries visible in dashboard; no silent inconsistency |
-
-### QAS-05 — Cross-channel order visibility
-
-| Field | Value |
-|---|---|
-| **Source** | In-store staff |
-| **Stimulus** | Customer requests in-store return of an online order |
-| **Environment** | Normal conditions |
-| **Artifact** | Order service |
-| **Response** | POS can query order state from Commerce Core via API |
-| **Measure** | Order status available within 1s; no manual lookup required |
+| ID | Attribute | Scenario | Measure |
+|---|---|---|---|
+| **QAS-1** | Availability | ERP Unavailability During Checkout | Checkout success ≥ 99%. ERP eventually consistent within 5 min of recovery. |
+| **QAS-2** | Consistency | Cross-Channel Stock Reservation | Zero oversell. Reservation API P99 latency ≤ 200 ms. |
+| **QAS-3** | Resilience | Carrier API Degradation at Checkout | Checkout rate ≥ 97% during degradation. Fallback in < 100 ms. |
+| **QAS-4** | Traceability | Order State Visibility Across Channels | Order status reflects WMS events within 10 seconds. |
+| **QAS-5** | Recoverability | Stock Reconciliation After WMS Reconnection | Full reconciliation in < 2 min. No duplicate stock deductions. |
 
 ---
 
 ## 5. Chosen Framework — ADD (Attribute-Driven Design)
 
-**Selected:** ADD 3.0 (Attribute-Driven Design)
+### Why ADD
 
-**Why ADD fits this scenario:**
+- Scenario C is defined by quality attribute tensions — availability vs. consistency, resilience vs. simplicity.
+- ADD drives decomposition from QAS, not from functional features.
+- ADD's iterative approach lets us keep the monolith and add only what the QAS demand.
+- Explicit traceability from QAS to ADR to implementation.
+- Lighter than TOGAF/ADM, more implementation-oriented. Compared to ACDM, quality attributes come first.
 
-ADD starts from quality attribute scenarios (QAS) and derives architectural decisions directly from them. This is exactly the challenge here: the scenario does not lack features — it lacks the right architectural properties (availability, resilience, consistency, observability). ADD forces traceability from QAS → design decision → component → implementation.
+### Why not ADM
 
-**How we applied ADD:**
+- More useful for larger enterprise systems
+- Adds unnecessary overhead for a focused architectural evolution
+- Too broad and high-level for the granularity required here
 
-1. Identified the primary quality attribute drivers from the scenario (QAS-01 to QAS-05 above)
-2. Selected the architectural patterns that respond to each driver (outbox, circuit breaker, async messaging, staleness metadata)
-3. Allocated responsibilities to elements (integration layer, message bus, adapters)
+### Why not ACDM
+
+- Stricter phases and heavier process
+- Less directly focused on quality attributes
+
+### How we applied ADD
+
+1. Identified the primary quality attribute drivers from the scenario (QAS-1 to QAS-5)
+2. Selected the architectural patterns that respond to each driver (outbox, circuit breaker on Carrier, async messaging, reservation API, staleness metadata)
+3. Allocated responsibilities to elements (integration layer, message bus, adapters, inventory module)
 4. Produced the target architecture below
 5. Recorded each major decision as an ADR with rejected alternatives
-
-**Why not ACDM:** ACDM (Architecture-Centric Design Method) focuses more on modeling the current system and incrementally refining it. It is appropriate when the existing architecture is largely correct and needs evolution. Here, the gap between current state and target state is significant enough that ADD's driver-first approach gives clearer traceability.
-
-**Why not ADM/TOGAF:** ADM is enterprise-scale and governance-heavy. It would introduce overhead not justified for a focused evolution of one platform.
 
 ---
 
@@ -202,58 +191,84 @@ ADD starts from quality attribute scenarios (QAS) and derives architectural deci
 
 ### Overview
 
-nopCommerce remains the **commerce core monolith**. The evolution adds an **integration layer** inside the monolith — not a separate service — that handles outbound event publishing and inbound event consumption via RabbitMQ. Surrounding systems are represented by lightweight stubs.
+nopCommerce remains the **commerce core monolith**. The evolution adds an **integration layer** inside the monolith and an **inventory module** that owns the cross-channel stock ledger and reservations. Surrounding systems are represented by real open-source stubs (OpenBoxes, ERPNext, OSPOS, Keycloak) and a WireMock carrier surrogate.
 
-This is a deliberate scope decision: extracting services from nopCommerce is not justified by the scenario. The architectural pressure is about _behavior under external system failure_, not about scaling catalog or checkout independently.
+This is a deliberate scope decision (see ADR-004): extracting services from nopCommerce is not justified by the scenario. The architectural pressure is about _behavior under external system failure_, not about scaling catalog or checkout independently.
 
-### Component Diagram (C4 Level 2)
+### Components
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                    Commerce Core (nopCommerce)                    │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐ │
-│  │   Catalog    │  │    Orders    │  │    Inventory Replica   │ │
-│  │   Service    │  │    Service   │  │  (StockQuantity +      │ │
-│  │              │  │              │  │   LastUpdatedAt +      │ │
-│  └──────────────┘  └──────┬───────┘  │   IsStale flag)       │ │
-│                           │          └──────────┬─────────────┘ │
-│                    ┌──────▼──────────────────────▼────────────┐  │
-│                    │         Integration Layer                 │  │
-│                    │                                          │  │
-│                    │  ┌──────────┐  ┌──────────────────────┐ │  │
-│                    │  │  Outbox  │  │  RabbitMQ Consumers  │ │  │
-│                    │  │  Writer  │  │  (stock.updated,     │ │  │
-│                    │  └────┬─────┘  │   shipment.updated)  │ │  │
-│                    │       │        └──────────┬───────────┘ │  │
-│                    │  ┌────▼─────────────────┐ │             │  │
-│                    │  │  Outbox Publisher    │ │             │  │
-│                    │  │  (ScheduleTask)      │ │             │  │
-│                    │  └────┬─────────────────┘ │             │  │
-│                    └───────┼───────────────────┼─────────────┘  │
-│                            │                   │                 │
-└────────────────────────────┼───────────────────┼─────────────────┘
-                             │   RabbitMQ        │
-              ┌──────────────┼───────────────────┼──────────────┐
-              │              │                   │              │
-       ┌──────▼──────┐ ┌─────▼──────┐    ┌──────▼──────┐       │
-       │ WMS Stub    │ │ ERP Stub   │    │  POS Stub   │       │
-       │ (WireMock)  │ │ (WireMock) │    │  (WireMock) │       │
-       └─────────────┘ └────────────┘    └─────────────┘       │
-              │                                                  │
-              └──────────────────────────────────────────────────┘
-                              Docker Compose
+┌──────────────────────────────────────────────────────────────────────────┐
+│                       Commerce Core (nopCommerce)                         │
+│                                                                          │
+│  ┌───────────┐  ┌───────────┐  ┌──────────────┐  ┌────────────────────┐ │
+│  │  Catalog  │  │   Order   │  │   Carrier    │  │   Admin / Ops      │ │
+│  │  Service  │  │  Service  │  │   Adapter    │  │   Dashboard        │ │
+│  │           │  │           │  │ (circuit br.)│  │ (staleness, queue) │ │
+│  └─────┬─────┘  └─────┬─────┘  └──────┬───────┘  └─────────┬──────────┘ │
+│        │              │               │                    │            │
+│  ┌─────┴──────────────┴───┐    ┌──────┴────────────────────┴─────────┐ │
+│  │   Integration Layer    │    │        Inventory Module             │ │
+│  │  ┌────────┐ ┌────────┐ │    │  ┌─────────────┐  ┌──────────────┐ │ │
+│  │  │ Outbox │ │ Outbox │ │    │  │ Reservation │  │ WMS Event    │ │ │
+│  │  │ Writer │ │Publisher│ │    │  │     API     │  │ Consumer     │ │ │
+│  │  └────┬───┘ └────┬───┘ │    │  └──────┬──────┘  └──────┬───────┘ │ │
+│  │       │  ┌───────┴───┐ │    │         │                │         │ │
+│  │       │  │   Event   │ │    │         │     ┌──────────┴──────┐  │ │
+│  │       │  │  Consumer │ │    │         │     │ Staleness Check │  │ │
+│  │       │  └───────────┘ │    │         │     └─────────────────┘  │ │
+│  └───────┼──────────┼─────┘    └─────────┼────────────┼─────────────┘ │
+│          │          │                    │            │               │
+│  ┌───────▼──────────▼────────────────────▼────────────▼─────────────┐ │
+│  │                       nopCommerce DB                              │ │
+│  │  StockLedger (StockQuantity, LastUpdatedAt, IsStale, Reservations)│ │
+│  │  OutboxMessage   ·   ProcessedEvents                              │ │
+│  └────────────────────────────────────────────────────────────────────┘│
+└───────────────────────────┬──────────────────────────────────────────────┘
+                            │  publish / consume
+                            ▼
+                      ┌──────────┐
+                      │ RabbitMQ │
+                      └────┬─────┘
+            ┌──────────────┼──────────────┬────────────────┐
+   StockPicked  OrderConfirmed   OrderAssigned    TrackingUpdated
+            │              │              │                │
+            ▼              ▼              ▼                ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │                    External Systems                          │
+   │  ┌──────────┐  ┌────────┐  ┌────────┐  ┌────────────────┐  │
+   │  │OpenBoxes │  │ERPNext │  │ OSPOS  │  │  Carrier API   │  │
+   │  │  (WMS)   │  │ (ERP)  │  │ (POS)  │  │   (WireMock)   │  │
+   │  └──────────┘  └────────┘  └────────┘  └────────────────┘  │
+   │                          (HTTP rate retrieval / reserve)    │
+   └──────────────────────────────────────────────────────────────┘
 ```
 
-### Data Ownership
+### Key Components
 
-| Data | Owned By | Other consumers |
-|---|---|---|
-| Product catalog | Commerce Core | Read-only by all |
-| Order state | Commerce Core | ERP receives copy via event |
-| Physical stock (truth) | WMS | Commerce Core holds timestamped replica |
-| Financial records | ERP | Populated from order events |
-| Shipment tracking | WMS → Commerce Core | Updates flow in via consumer |
+- **Integration Layer (inside nopCommerce):**
+  - `Outbox Writer` — writes outbox entries in the same DB transaction as business operations
+  - `Outbox Publisher` — `IScheduleTask` that polls unpublished entries and publishes to RabbitMQ
+  - `Event Consumer` — receives inbound events from RabbitMQ (e.g., `OrderConfirmed` ack)
+- **Inventory Module:**
+  - `Reservation API` — synchronous endpoint for cross-channel stock reservation (QAS-2)
+  - `WMS Event Consumer` — handles `StockPicked`, `TrackingUpdated` events from OpenBoxes
+  - `Staleness Checker` — `IScheduleTask` that marks stock entries stale when `LastUpdatedAt` is older than the threshold
+- **Carrier Adapter** — synchronous HTTP client with circuit breaker; falls back to cached/default rates (QAS-3)
+- **Admin / Ops Dashboard** — surfaces staleness, outbox queue depth, and circuit-breaker state
+- **External Stubs (Docker):**
+  - OpenBoxes (WMS), ERPNext (ERP), OSPOS (POS), Keycloak (identity), WireMock (Carrier API)
+
+### Event Flows
+
+| Event | Direction | Mode | Purpose |
+|---|---|---|---|
+| `OrderConfirmed` / `OrderPlaced` | Out → ERP | Async (RabbitMQ + Outbox) | Notify ERPNext of completed orders |
+| `OrderAssigned` | Out → WMS | Async (RabbitMQ + Outbox) | Hand off fulfillment to OpenBoxes |
+| `StockPicked` | In ← WMS | Async (RabbitMQ) | Adjust stock replica after picks |
+| `TrackingUpdated` | In ← WMS / Carrier | Async (RabbitMQ) | Update shipment status (QAS-4) |
+| `Reserve Stock` | Sync HTTP | In | POS / Web call Reservation API (QAS-2) |
+| `Rate retrieval` | Sync HTTP → Carrier | Out | Carrier Adapter with circuit breaker (QAS-3) |
 
 ### Synchronous vs Asynchronous Interactions
 
@@ -262,16 +277,19 @@ This is a deliberate scope decision: extracting services from nopCommerce is not
 | Customer checkout | Sync (HTTP) | Transactional with outbox write |
 | Order → ERP notification | Async (RabbitMQ) | Outbox pattern |
 | WMS stock update → Core | Async (RabbitMQ) | At-least-once delivery, idempotent consumer |
-| POS stock adjustment → Core | Async (RabbitMQ) | Idempotent consumer |
+| POS / Web stock reservation | Sync (HTTP) | Reservation API with atomic decrement |
 | Core → WMS fulfillment request | Async (RabbitMQ) | Outbox + retry policy |
+| Carrier rate retrieval | Sync (HTTP) | Circuit breaker + cached fallback |
 | Staleness check | Internal (ScheduleTask) | Periodic background job |
 
 ### Cross-Cutting Concerns
 
-- **Reliability**: Outbox pattern prevents dual-write loss; all outbound events are written transactionally before publishing
-- **Resilience**: Circuit breaker on WMS calls; stale stock served with indicator when circuit is open
-- **Observability**: `LastUpdatedAt` + `IsStale` on every replicated data point; structured logging on all integration events
-- **Idempotency**: All inbound consumers are idempotent — processing the same message twice produces the same result (deduplication by event ID)
+- **Reliability:** Outbox pattern prevents dual-write loss; all outbound events are written transactionally before publishing
+- **Resilience:** Circuit breaker on Carrier API; stock replica served with `IsStale` indicator when WMS lags
+- **Consistency:** Reservation API enforces atomic stock decrement across channels (QAS-2)
+- **Observability:** `LastUpdatedAt` + `IsStale` on every replicated data point; structured logging on all integration events; ops dashboard
+- **Idempotency:** All inbound consumers are idempotent — processing the same message twice produces the same result (deduplication by `EventId` via `ProcessedEvents` table)
+- **Recoverability:** WMS reconnection triggers reconciliation of buffered events without duplicates (QAS-5)
 
 ---
 
@@ -279,13 +297,15 @@ This is a deliberate scope decision: extracting services from nopCommerce is not
 
 ADRs are maintained in `docs/adr/`. Summary:
 
-| ADR | Decision | Status |
-|---|---|---|
-| ADR-001 | Async integration via RabbitMQ instead of synchronous HTTP | Accepted |
-| ADR-002 | Outbox pattern for reliable event publishing | Accepted |
-| ADR-003 | Circuit breaker + stale stock indicator for WMS calls | Accepted |
-| ADR-004 | Keep Commerce Core as a monolith; do not extract services | Accepted |
-| ADR-005 | Idempotent inbound consumers with deduplication by event ID | Accepted |
+| ADR | Decision | Drivers | Status |
+|---|---|---|---|
+| ADR-001 | Async integration via RabbitMQ instead of synchronous HTTP | QAS-1, QAS-5 | Accepted |
+| ADR-002 | Outbox pattern for reliable event publishing | QAS-1, QAS-5 | Accepted |
+| ADR-003 | Circuit breaker on Carrier API with fallback rates | QAS-3 | Accepted |
+| ADR-004 | Keep Commerce Core as a monolith; do not extract services | Scope constraint | Accepted |
+| ADR-005 | Idempotent inbound consumers with deduplication by event ID | QAS-5 | Accepted |
+
+ADR-001, ADR-002, and ADR-004 are the three checkpoint-mandated ADRs. ADR-003 and ADR-005 are supporting decisions that implement specific QAS responses.
 
 See individual ADR files for context, rationale, and rejected alternatives.
 
@@ -293,69 +313,65 @@ See individual ADR files for context, rationale, and rejected alternatives.
 
 ## 8. Risk and Validation Plan
 
-### Risk Register
+### Architectural Risks
 
-| # | Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|---|
-| R1 | Outbox publisher introduces latency spike during high order volume | Medium | Medium | Spike: measure end-to-end event propagation time under load |
-| R2 | RabbitMQ integration conflicts with nopCommerce's internal IEventPublisher | Medium | High | Spike: prototype dual-publisher (internal bus + RabbitMQ) for one event type |
-| R3 | Idempotency logic in consumers causes missed updates under edge cases | Low | High | Unit tests with duplicate message scenarios; dead-letter queue monitoring |
-| R4 | WireMock stubs do not replicate the pressure behavior of real systems | Medium | Medium | Define explicit chaos scenarios (latency injection, 503 responses) in WireMock config |
-| R5 | Stock staleness indicator confuses customers | Low | Low | UX review of stale indicator copy; always show "as of [time]" not just a warning |
+| Decision | Risk | Severity | Description |
+|---|---|---|---|
+| Keep Commerce Core as a Monolith | Monolith becomes a bottleneck as omnichannel load grows | Medium | Accumulated coupling over time — new cross-channel requirements may silently break the "add only what QAS demands" principle |
+| Outbox Pattern for Reliable Event Publishing | Outbox Relay Lag under Load | Medium | High order volume could create outbox backlog, delaying ERP/WMS notification |
+| Asynchronous Integration via RabbitMQ | RabbitMQ Single Point of Failure | Medium | If RabbitMQ is unavailable, all async integrations stall (checkout still works via outbox) |
+| Outbox Pattern for Reliable Event Publishing | WMS Event Ordering | Low-Medium | Out-of-order WMS events could corrupt inventory state |
 
 ### Validation Plan
 
-| Goal | How to validate |
-|---|---|
-| QAS-01: Order completes when ERP is down | Stop ERP stub container; place order; verify outbox entry created; restart ERP stub; verify event received |
-| QAS-02: Checkout proceeds when WMS is down | Configure WireMock to return 503; trigger circuit breaker; verify stale indicator shown; restore WMS; verify pending orders forwarded |
-| QAS-03: Stock update propagates in < 5s | Send stock.updated event; measure time to storefront reflection; repeat 100x for p95 |
-| QAS-04: Stale data visible in dashboard | Pause RabbitMQ consumer; wait 10 min; verify staleness flag set; verify dashboard shows affected SKUs |
-| QAS-05: Cross-channel order visibility | Query order state via POS API endpoint; verify response within 1s |
+| QAS | Steps | Assertion |
+|---|---|---|
+| **QAS-1 — ERP Availability** | Bring down ERPNext container during checkout load test | Orders complete. ERP records created after recovery. Zero lost orders. |
+| **QAS-2 — Stock Consistency** | Run concurrent reservation test: 50 simultaneous requests for a single-unit item | Exactly 1 success (HTTP 200), 49 conflicts (HTTP 409). Zero oversell. |
+| **QAS-3 — Carrier Resilience** | Configure WireMock with 5s delay and 503 responses for 30% of requests | Circuit opens after 3 failures. Fallback rates served. Checkout completes. |
+| **QAS-4 — Order Visibility** | Place order, trigger WMS `ShipmentDispatched` event, query Commerce Core order status | Order status updated within 10 seconds of event publication. |
+| **QAS-5 — WMS Reconnect** | Pause OpenBoxes for 2 minutes. Process picks locally. Reconnect. | Buffered events processed. Stock reconciled within 2 min. No duplicate deductions. |
 
 ---
 
 ## 9. Evolution Roadmap
 
-### Phases
-
 ```
-Phase 1 — Integration Foundation (Weeks 1–2)
-  ├── Outbox table + writer (transactional, inside nopCommerce)
-  ├── Outbox publisher (ScheduleTask, polls and publishes to RabbitMQ)
-  ├── RabbitMQ Docker container in docker-compose
-  └── Smoke test: OrderPlacedEvent reaches RabbitMQ queue
+Phase 0 — Baseline
+  └── nopCommerce as-is. Single-channel web store. No event bus. No external integrations.
+      No cross-channel stock visibility.
 
-Phase 2 — WMS Integration (Weeks 2–3)
-  ├── WMS stub (WireMock) with stock.updated and shipment.updated endpoints
-  ├── Inbound consumer: stock.updated → update Inventory Replica
-  ├── StockQuantity entity extended with LastUpdatedAt + IsStale
-  └── Staleness ScheduleTask (marks entries stale if not updated in > 10 min)
+Phase 1 — Infrastructure Foundation
+  └── Async message bus introduced. Surrounding system surrogates deployed
+      (OpenBoxes, ERPNext, OSPOS, Keycloak, WireMock). Commerce Core gains an outbound event channel.
 
-Phase 3 — ERP Integration (Weeks 3–4)
-  ├── ERP stub (WireMock)
-  ├── Outbound: OrderPlacedEvent → ERP queue
-  ├── Outbound: OrderStatusChangedEvent → ERP queue
-  └── Verify ERP receives events after outage recovery
+Phase 2 — Reliable Event Publishing
+  └── Orders produce durable events via Outbox. ERP receives async notifications.
+      Event delivery survives broker and ERP outages.
 
-Phase 4 — Resilience (Weeks 4–5)
-  ├── Circuit breaker on WMS health check
-  ├── Stale indicator in storefront (product page + cart)
-  ├── POS stub + order state query endpoint
-  └── Retry policy + dead-letter queue setup
+Phase 3 — Cross-Channel Stock
+  └── Commerce Core holds a live replica of physical stock. WMS changes propagate inbound.
+      Reservation API enforces consistency across web and POS. Staleness becomes observable.
 
-Phase 5 — Evidence Pack (Weeks 5–6)
-  ├── Failure scenario scripts (chaos injection)
-  ├── Latency measurements (p50/p95/p99)
-  ├── Demo run-through + documentation
-  └── Known limitations documented
+Phase 4 — Resilience Layer
+  └── Commerce Core degrades gracefully when surrounding systems fail. Carrier Adapter circuit
+      breaker + fallback rates. Stale state is visible, not silent. Cross-channel order visibility
+      enabled for POS.
+
+Phase 5 — Pressure Validation
+  └── Failure scenarios exercised and measured (per Validation Plan). Recovery paths verified.
+      Evidence pack produced. Known limitations documented.
+
+Phase 6 — Demo
+  └── End-to-end flows rehearsed. Pressure point demonstrated live. Architecture report and
+      ADR set finalised.
 ```
 
-### What must coexist during transition
+### Coexistence During Transition
 
-- The internal `IEventPublisher` bus must continue to work for cache invalidation and existing consumers — the outbox publisher adds RabbitMQ delivery alongside it, not instead of it
-- `StockQuantity` on the `Product` entity remains the field nopCommerce reads — the integration layer updates it; no existing service needs to change its read path
-- All surrounding systems (WMS, ERP, POS) are stubs in Docker — the code is written against interfaces so real systems could replace the stubs without changing nopCommerce
+- Internal `IEventPublisher` bus stays intact for cache invalidation and existing consumers — the outbox publisher adds RabbitMQ delivery alongside it, not instead of it
+- External systems are stubs/surrogates (OpenBoxes, ERPNext, OSPOS, Keycloak, WireMock-Carrier) — interfaces are written so real systems could replace them without changing nopCommerce
+- The `StockQuantity` read path remains unchanged from nopCommerce's perspective — the inventory module updates it; existing services do not change
 
 ---
 
@@ -363,25 +379,27 @@ Phase 5 — Evidence Pack (Weeks 5–6)
 
 ### Spike Goal
 
-Validate that RabbitMQ can be integrated into nopCommerce's event system without breaking the existing internal event bus.
+Validate the end-to-end path from order creation to RabbitMQ delivery using the outbox pattern, without breaking nopCommerce's existing internal event bus.
 
 ### Spike Scope
 
-1. Add a `RabbitMqEventPublisher` that wraps `IEventPublisher` and additionally publishes to a RabbitMQ exchange
-2. Register it as a decorator in the DI container (Autofac) so existing consumers still receive events via the internal bus
-3. Fire one event type: `OrderPlacedEvent`
-4. Verify: (a) internal consumers still work, (b) RabbitMQ receives the message, (c) measure round-trip time
+1. Create the `OutboxMessage` table via a FluentMigrator migration
+2. Modify `IOrderService.InsertOrderAsync` to write an `OutboxMessage` entry in the same LinqToDb transaction as the order insert
+3. Implement the Outbox Publisher `IScheduleTask` — polls unpublished entries and publishes to a RabbitMQ exchange
+4. Verify `OrderPlacedEvent` appears in RabbitMQ management UI within the publisher polling interval after checkout
+5. Measure end-to-end time from order creation to RabbitMQ delivery across 10 orders
 
 ### Spike Success Criteria
 
-- [ ] `OrderPlacedEvent` appears in RabbitMQ management UI after an order is placed in nopCommerce
+- [ ] `OutboxMessage` entry created in the same transaction as the order
+- [ ] `OrderPlacedEvent` appears in RabbitMQ management UI within 60 s of order creation
 - [ ] Existing internal `IConsumer<OrderPlacedEvent>` implementations still fire correctly
 - [ ] No breaking changes to `Nop.Services` or `Nop.Core`
-- [ ] Average additional latency added by RabbitMQ publish < 50ms
+- [ ] Checkout response-time increase due to outbox write < 20 ms (p95)
 
-### Risk if spike fails
+### Risk if Spike Fails
 
-If decorating `IEventPublisher` is not viable, the fallback is to publish from `IOrderService.InsertOrderAsync` directly after the DB write, using the outbox as the intermediate — this decouples the event publish from the DI event bus entirely.
+If decorating `IEventPublisher` or writing through the existing service interface is not viable, the fallback is to publish from `IOrderService.InsertOrderAsync` directly after the DB write, using the outbox as the intermediate — this decouples the event publish from the DI event bus entirely.
 
 ---
 
@@ -391,6 +409,7 @@ If decorating `IEventPublisher` is not viable, the fallback is to publish from `
 /
 ├── docs/
 │   ├── architecture-report.md        ← this file
+│   ├── ISSUE.md                      ← discrepancies found vs presentation
 │   ├── adr/
 │   │   ├── ADR-001-async-rabbitmq.md
 │   │   ├── ADR-002-outbox-pattern.md
@@ -398,9 +417,8 @@ If decorating `IEventPublisher` is not viable, the fallback is to publish from `
 │   │   ├── ADR-004-monolith-boundary.md
 │   │   └── ADR-005-idempotent-consumers.md
 │   └── diagrams/
-│       ├── bounded-context.png
-│       └── target-architecture.png
-├── nopcommerce/                       ← baseline nopCommerce (unmodified)
+│       └── target-architecture.drawio
+├── nopcommerce/                      ← baseline nopCommerce (unmodified)
 │   └── src/
 │       └── ...
 └── CLAUDE.md

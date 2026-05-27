@@ -12,6 +12,8 @@ Commerce Core consumes events from RabbitMQ sent by external systems (WMS stock 
 
 If a "stock decremented by 5" message is processed twice, nopCommerce's stock replica drops by 10. If a "order shipped" event fires twice, the customer may receive two shipping notifications.
 
+**Driver:** QAS-5 requires full stock reconciliation in < 2 min after WMS reconnection with **no duplicate deductions** — even when buffered events are redelivered or replayed.
+
 ---
 
 ## Decision
