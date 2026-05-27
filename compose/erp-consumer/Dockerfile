@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+RUN pip install --no-cache-dir pika==1.3.2
+
+COPY consumer.py /app/consumer.py
+
+VOLUME ["/data"]
+CMD ["python", "/app/consumer.py"]

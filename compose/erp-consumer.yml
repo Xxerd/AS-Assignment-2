@@ -1,0 +1,28 @@
+# Lightweight ERP surrogate for VerdeMart Phase 2.
+# Consumes OrderConfirmedEvent from commerce.events and persists into SQLite.
+# Heavier alternative: compose/erpnext.yml.
+services:
+    erp_consumer:
+        build:
+            context: ./erp-consumer
+        container_name: verdemart_erp_consumer
+        environment:
+            RABBITMQ_HOST: rabbitmq
+            RABBITMQ_PORT: "5672"
+            RABBITMQ_USER: ${RABBITMQ_USER:-verdemart}
+            RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-verdemart}
+            RABBITMQ_EXCHANGE: commerce.events
+            ERP_QUEUE: erp.order-confirmed
+            ERP_ROUTING_KEY: OrderConfirmedEvent
+            ERP_DB_PATH: /data/erp.sqlite
+        volumes:
+            - erp_consumer_data:/data
+        networks:
+            - verdemart
+
+volumes:
+    erp_consumer_data:
+
+networks:
+    verdemart:
+        external: true

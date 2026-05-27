@@ -25,6 +25,7 @@
 include:
     # - path: compose/openboxes.yml
     # - path: compose/erpnext.yml
+    - path: compose/erp-consumer.yml
     - path: compose/ospos.yml
     - path: compose/keycloak.yml
     - path: compose/wiremock-carrier.yml
