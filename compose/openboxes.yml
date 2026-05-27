@@ -1,0 +1,42 @@
+# OpenBoxes WMS surrogate.
+#
+# OpenBoxes is a full Java/Grails warehouse-management application. The
+# official image is large (~1.5GB) and requires a backing MySQL. For the
+# checkpoint demo we run the official image; if startup time / footprint
+# becomes a problem during Phase 1, fall back to a thin HTTP stub that
+# mimics the OpenBoxes REST surface we actually use (see ISSUE.md §5).
+services:
+    openboxes:
+        image: openboxes/openboxes:latest
+        container_name: verdemart_openboxes
+        ports:
+            - "8080:8080"
+        depends_on:
+            - openboxes_db
+        environment:
+            DATABASE_HOSTNAME: openboxes_db
+            DATABASE_NAME: openboxes
+            DATABASE_USERNAME: openboxes
+            DATABASE_PASSWORD: openboxes
+        networks:
+            - verdemart
+
+    openboxes_db:
+        image: mysql:8.0
+        container_name: verdemart_openboxes_db
+        environment:
+            MYSQL_ROOT_PASSWORD: openboxes_root
+            MYSQL_DATABASE: openboxes
+            MYSQL_USER: openboxes
+            MYSQL_PASSWORD: openboxes
+        volumes:
+            - openboxes_data:/var/lib/mysql
+        networks:
+            - verdemart
+
+volumes:
+    openboxes_data:
+
+networks:
+    verdemart:
+        external: true

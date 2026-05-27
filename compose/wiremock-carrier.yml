@@ -1,0 +1,17 @@
+# WireMock surrogate for the Carrier API (UPS / FedEx / DHL).
+# Mappings live in compose/wiremock-carrier/ and are mounted read-only.
+services:
+    carrier_api:
+        image: wiremock/wiremock:3.9.1
+        container_name: verdemart_carrier_api
+        command: ["--global-response-templating", "--verbose"]
+        ports:
+            - "8084:8080"
+        volumes:
+            - ./wiremock-carrier:/home/wiremock:ro
+        networks:
+            - verdemart
+
+networks:
+    verdemart:
+        external: true

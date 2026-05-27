@@ -1,0 +1,35 @@
+# Top-level dev compose for VerdeMart.
+#
+# Brings up the surrounding-system surrogates that nopCommerce talks to
+# in Scenario C (Omnichannel Commerce Core):
+#
+#   * OpenBoxes      — WMS
+#   * ERPNext        — ERP / Finance
+#   * OSPOS          — POS
+#   * Keycloak       — identity
+#   * WireMock       — Carrier API
+#
+# nopCommerce itself + MSSQL + RabbitMQ are defined in nopcommerce/docker-compose.yml.
+#
+# Usage:
+#   docker network create verdemart   # first time only
+#   docker compose \
+#     -f nopcommerce/docker-compose.yml \
+#     -f docker-compose.dev.yml \
+#     up -d
+#
+# Heavy surrogates (openboxes / erpnext) are commented out by default
+# because they each pull >1GB and take minutes to boot. Uncomment when
+# the corresponding integration phase needs them.
+
+include:
+    # - path: compose/openboxes.yml
+    # - path: compose/erpnext.yml
+    - path: compose/ospos.yml
+    - path: compose/keycloak.yml
+    - path: compose/wiremock-carrier.yml
+
+networks:
+    default:
+        name: verdemart
+        external: true

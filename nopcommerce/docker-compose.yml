@@ -6,6 +6,13 @@ services:
             - "80:80"
         depends_on:
             - nopcommerce_database
+            - rabbitmq
+        environment:
+            RabbitMqConfig__Host: rabbitmq
+            RabbitMqConfig__Port: "5672"
+            RabbitMqConfig__Username: ${RABBITMQ_USER:-verdemart}
+            RabbitMqConfig__Password: ${RABBITMQ_PASSWORD:-verdemart}
+            RabbitMqConfig__VirtualHost: /
     nopcommerce_database:
         image: "mcr.microsoft.com/mssql/server:2019-latest"
         container_name: nopcommerce_mssql_server
@@ -13,6 +20,19 @@ services:
             SA_PASSWORD: "nopCommerce_db_password"
             ACCEPT_EULA: "Y"
             MSSQL_PID: "Express"
+    rabbitmq:
+        image: "rabbitmq:3-management"
+        container_name: verdemart_rabbitmq
+        hostname: rabbitmq
+        ports:
+            - "5672:5672"
+            - "15672:15672"
+        environment:
+            RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-verdemart}
+            RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-verdemart}
+        volumes:
+            - rabbitmq_data:/var/lib/rabbitmq
 
 volumes:
-  nopcommerce_data:            
+  nopcommerce_data:
+  rabbitmq_data:

@@ -1,0 +1,46 @@
+# ERPNext surrogate.
+#
+# ERPNext (Frappe) ships with a multi-container docker setup. We use the
+# community image with a single-node configuration suitable for the demo.
+# Heavy footprint; same fallback policy as OpenBoxes if needed.
+services:
+    erpnext:
+        image: frappe/erpnext:latest
+        container_name: verdemart_erpnext
+        ports:
+            - "8081:8000"
+        depends_on:
+            - erpnext_db
+            - erpnext_redis
+        environment:
+            DB_HOST: erpnext_db
+            DB_PORT: "3306"
+            REDIS_CACHE: erpnext_redis:6379
+            REDIS_QUEUE: erpnext_redis:6379
+            REDIS_SOCKETIO: erpnext_redis:6379
+        networks:
+            - verdemart
+
+    erpnext_db:
+        image: mariadb:10.6
+        container_name: verdemart_erpnext_db
+        environment:
+            MYSQL_ROOT_PASSWORD: erpnext_root
+            MYSQL_DATABASE: erpnext
+        volumes:
+            - erpnext_data:/var/lib/mysql
+        networks:
+            - verdemart
+
+    erpnext_redis:
+        image: redis:7-alpine
+        container_name: verdemart_erpnext_redis
+        networks:
+            - verdemart
+
+volumes:
+    erpnext_data:
+
+networks:
+    verdemart:
+        external: true

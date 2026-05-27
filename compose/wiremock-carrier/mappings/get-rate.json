@@ -1,0 +1,24 @@
+{
+    "mappings": [
+        {
+            "name": "carrier-rate-default",
+            "request": {
+                "method": "POST",
+                "urlPath": "/v1/rates"
+            },
+            "response": {
+                "status": 200,
+                "headers": {
+                    "Content-Type": "application/json"
+                },
+                "jsonBody": {
+                    "carrier": "UPS",
+                    "service": "Ground",
+                    "amount": 7.5,
+                    "currency": "EUR",
+                    "estimatedDeliveryDays": 3
+                }
+            }
+        }
+    ]
+}

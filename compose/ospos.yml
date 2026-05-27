@@ -1,0 +1,37 @@
+# OSPOS — Open Source Point Of Sale.
+# PHP + MySQL. Lightweight compared to OpenBoxes/ERPNext.
+services:
+    ospos:
+        image: opensourcepos/opensourcepos:latest
+        container_name: verdemart_ospos
+        ports:
+            - "8082:80"
+        depends_on:
+            - ospos_db
+        environment:
+            DB_HOST: ospos_db
+            DB_NAME: ospos
+            DB_USER: ospos
+            DB_PASSWORD: ospos
+        networks:
+            - verdemart
+
+    ospos_db:
+        image: mariadb:10.6
+        container_name: verdemart_ospos_db
+        environment:
+            MYSQL_ROOT_PASSWORD: ospos_root
+            MYSQL_DATABASE: ospos
+            MYSQL_USER: ospos
+            MYSQL_PASSWORD: ospos
+        volumes:
+            - ospos_data:/var/lib/mysql
+        networks:
+            - verdemart
+
+volumes:
+    ospos_data:
+
+networks:
+    verdemart:
+        external: true
