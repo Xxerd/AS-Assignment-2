@@ -3,6 +3,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Nop.Core.Configuration;
 using Nop.Core.Infrastructure;
+using Nop.Services.Integration.Idempotency;
 using Nop.Services.Integration.Messaging;
 using Nop.Services.Integration.Outbox;
 
@@ -28,6 +29,8 @@ public partial class IntegrationStartup : INopStartup
 
         services.AddScoped<IOutboxWriter, OutboxWriter>();
         services.AddTransient<OutboxPublisherTask>();
+
+        services.AddScoped<IIdempotencyGuard, IdempotencyGuard>();
     }
 
     public virtual void Configure(IApplicationBuilder application)
