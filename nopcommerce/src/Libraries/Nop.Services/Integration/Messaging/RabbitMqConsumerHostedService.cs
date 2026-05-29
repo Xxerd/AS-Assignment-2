@@ -2,10 +2,10 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Nop.Core.Configuration;
 using Nop.Core.Domain.Integration;
 using Nop.Services.Integration.Consumers;
-using Nop.Services.Logging;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 
@@ -33,7 +33,7 @@ public partial class RabbitMqConsumerHostedService : IHostedService, IDisposable
 
     protected readonly RabbitMqConfig _config;
     protected readonly IServiceScopeFactory _scopeFactory;
-    protected readonly ILogger _logger;
+    protected readonly ILogger<RabbitMqConsumerHostedService> _logger;
     protected IConnection _connection;
     protected IModel _channel;
     protected CancellationTokenSource _cts;
@@ -41,7 +41,7 @@ public partial class RabbitMqConsumerHostedService : IHostedService, IDisposable
     public RabbitMqConsumerHostedService(
         RabbitMqConfig config,
         IServiceScopeFactory scopeFactory,
-        ILogger logger)
+        ILogger<RabbitMqConsumerHostedService> logger)
     {
         _config = config;
         _scopeFactory = scopeFactory;
@@ -119,7 +119,7 @@ public partial class RabbitMqConsumerHostedService : IHostedService, IDisposable
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                await _logger.ErrorAsync("RabbitMQ consumer: connection failed, retrying in 10s", ex);
+                _logger.LogError(ex, "RabbitMQ consumer: connection failed, retrying in 10s");
                 await Task.Delay(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
             }
         }
@@ -129,6 +129,7 @@ public partial class RabbitMqConsumerHostedService : IHostedService, IDisposable
     {
         var routingKey = ea.RoutingKey;
         var json = Encoding.UTF8.GetString(ea.Body.ToArray());
+        var success = false;
 
         try
         {
@@ -145,12 +146,18 @@ public partial class RabbitMqConsumerHostedService : IHostedService, IDisposable
                 await handler.HandleAsync(@event);
             }
 
-            _channel.BasicAck(ea.DeliveryTag, multiple: false);
+            success = true;
         }
         catch (Exception ex)
         {
-            await _logger.ErrorAsync($"RabbitMQ consumer: failed to process '{routingKey}'", ex);
-            _channel.BasicNack(ea.DeliveryTag, multiple: false, requeue: false);
+            _logger.LogError(ex, "RabbitMQ consumer: failed to process '{RoutingKey}'", routingKey);
+        }
+        finally
+        {
+            if (success)
+                _channel.BasicAck(ea.DeliveryTag, multiple: false);
+            else
+                _channel.BasicNack(ea.DeliveryTag, multiple: false, requeue: false);
         }
     }
 

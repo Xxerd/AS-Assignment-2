@@ -1,7 +1,6 @@
 using Nop.Core.Domain.Integration;
 using Nop.Services.Integration.Idempotency;
 using Nop.Services.Inventory;
-using Nop.Services.Logging;
 
 namespace Nop.Services.Integration.Consumers;
 
@@ -15,16 +14,13 @@ public partial class WmsStockPickedHandler : IIntegrationEventHandler<StockPicke
 {
     protected readonly IIdempotencyGuard _idempotencyGuard;
     protected readonly IStockLedgerService _stockLedgerService;
-    protected readonly ILogger _logger;
 
     public WmsStockPickedHandler(
         IIdempotencyGuard idempotencyGuard,
-        IStockLedgerService stockLedgerService,
-        ILogger logger)
+        IStockLedgerService stockLedgerService)
     {
         _idempotencyGuard = idempotencyGuard;
         _stockLedgerService = stockLedgerService;
-        _logger = logger;
     }
 
     public virtual async Task HandleAsync(StockPickedEvent @event, CancellationToken cancellationToken = default)
@@ -39,8 +35,5 @@ public partial class WmsStockPickedHandler : IIntegrationEventHandler<StockPicke
             @event.OccurredAtUtc);
 
         await _idempotencyGuard.MarkProcessedAsync(@event.EventId);
-
-        await _logger.InformationAsync(
-            $"WMS pick applied: product={@event.ProductId} warehouse={@event.WarehouseId} qty={@event.QuantityPicked}");
     }
 }

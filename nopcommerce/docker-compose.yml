@@ -13,6 +13,8 @@ services:
             RabbitMqConfig__Username: ${RABBITMQ_USER:-verdemart}
             RabbitMqConfig__Password: ${RABBITMQ_PASSWORD:-verdemart}
             RabbitMqConfig__VirtualHost: /
+        volumes:
+            - nopcommerce_app_data:/app/App_Data
     nopcommerce_database:
         image: "mcr.microsoft.com/mssql/server:2019-latest"
         container_name: nopcommerce_mssql_server
@@ -35,4 +37,5 @@ services:
 
 volumes:
   nopcommerce_data:
+  nopcommerce_app_data:
   rabbitmq_data:
