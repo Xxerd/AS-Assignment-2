@@ -2,7 +2,9 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Nop.Core.Configuration;
+using Nop.Core.Domain.Integration;
 using Nop.Core.Infrastructure;
+using Nop.Services.Integration.Consumers;
 using Nop.Services.Integration.Idempotency;
 using Nop.Services.Integration.Messaging;
 using Nop.Services.Integration.Outbox;
@@ -31,6 +33,9 @@ public partial class IntegrationStartup : INopStartup
         services.AddTransient<OutboxPublisherTask>();
 
         services.AddScoped<IIdempotencyGuard, IdempotencyGuard>();
+
+        services.AddScoped<IIntegrationEventHandler<StockPickedEvent>, WmsStockPickedHandler>();
+        services.AddHostedService<RabbitMqConsumerHostedService>();
     }
 
     public virtual void Configure(IApplicationBuilder application)
