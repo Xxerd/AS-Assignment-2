@@ -2,6 +2,10 @@
 
 <div class="checkout-data">
     @await Component.InvokeAsync(typeof(WidgetViewComponent), new { widgetZone = PublicWidgetZones.OpCheckoutConfirmTop, additionalData = Model })
+    @* VerdeMart Phase 4.3 — stale stock banner (ADR-003).
+       Shown in the one-page checkout confirm step so the customer
+       sees the "as of HH:mm" notice before confirming the order. *@
+    @await Html.PartialAsync("_VerdeMartStaleStockBanner")
     @if (!string.IsNullOrEmpty(Model.MinOrderTotalWarning) || Model.Warnings.Count > 0)
     {
         <div class="section confirm-order">

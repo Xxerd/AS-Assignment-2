@@ -1,4 +1,6 @@
+using Nop.Data;
 using Nop.Core.Domain.Inventory;
+using Nop.Core.Domain.Catalog;  // ← ADD THIS
 
 namespace Nop.Services.Inventory;
 
@@ -46,6 +48,11 @@ public partial interface IStockLedgerService
     /// </summary>
     Task<IList<StockLedgerEntry>> GetStaleEntriesAsync();
 
+    /// <summary>
+    /// Gets a product by ID for the Ops Dashboard.
+    /// </summary>
+    Task<Product> GetProductByIdAsync(int productId);  // ← ADD THIS
+
     /// <summary>Persists a new reservation record after TryReserveAsync succeeds.</summary>
     Task StoreReservationAsync(StockReservation reservation);
 
@@ -54,4 +61,8 @@ public partial interface IStockLedgerService
 
     /// <summary>Deletes the reservation record. Called after ReleaseReservationAsync.</summary>
     Task RemoveReservationAsync(Guid reservationId);
+
+    /// <summary>
+    /// Gets the repository for direct access
+    /// </summary>
 }
