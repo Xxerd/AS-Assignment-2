@@ -22,6 +22,8 @@ services:
             SA_PASSWORD: "nopCommerce_db_password"
             ACCEPT_EULA: "Y"
             MSSQL_PID: "Express"
+        volumes:
+            - nopcommerce_data:/var/opt/mssql
     rabbitmq:
         image: "rabbitmq:3-management"
         container_name: verdemart_rabbitmq

@@ -16,10 +16,14 @@ namespace Nop.Services.Inventory;
 public partial class StockLedgerService : IStockLedgerService
 {
     protected readonly IRepository<StockLedgerEntry> _ledgerRepository;
+    protected readonly IRepository<StockReservation> _reservationRepository;
 
-    public StockLedgerService(IRepository<StockLedgerEntry> ledgerRepository)
+    public StockLedgerService(
+        IRepository<StockLedgerEntry> ledgerRepository,
+        IRepository<StockReservation> reservationRepository)
     {
         _ledgerRepository = ledgerRepository;
+        _reservationRepository = reservationRepository;
     }
 
     public virtual async Task<StockLedgerEntry?> GetEntryAsync(int productId, int warehouseId = 0)
@@ -97,5 +101,23 @@ public partial class StockLedgerService : IStockLedgerService
         return await _ledgerRepository.Table
             .Where(e => e.IsStale)
             .ToListAsync();
+    }
+
+    public virtual async Task StoreReservationAsync(StockReservation reservation)
+    {
+        await _reservationRepository.InsertAsync(reservation, publishEvent: false);
+    }
+
+    public virtual async Task<StockReservation?> GetReservationAsync(Guid reservationId)
+    {
+        return await _reservationRepository.Table
+            .FirstOrDefaultAsync(r => r.ReservationId == reservationId);
+    }
+
+    public virtual async Task RemoveReservationAsync(Guid reservationId)
+    {
+        var reservation = await GetReservationAsync(reservationId);
+        if (reservation is not null)
+            await _reservationRepository.DeleteAsync(reservation, publishEvent: false);
     }
 }

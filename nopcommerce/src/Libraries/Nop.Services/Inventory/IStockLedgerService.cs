@@ -45,4 +45,13 @@ public partial interface IStockLedgerService
     /// Returns all entries currently marked as stale. Used by the Ops Dashboard.
     /// </summary>
     Task<IList<StockLedgerEntry>> GetStaleEntriesAsync();
+
+    /// <summary>Persists a new reservation record after TryReserveAsync succeeds.</summary>
+    Task StoreReservationAsync(StockReservation reservation);
+
+    /// <summary>Returns an active reservation by its business key, or null.</summary>
+    Task<StockReservation?> GetReservationAsync(Guid reservationId);
+
+    /// <summary>Deletes the reservation record. Called after ReleaseReservationAsync.</summary>
+    Task RemoveReservationAsync(Guid reservationId);
 }
