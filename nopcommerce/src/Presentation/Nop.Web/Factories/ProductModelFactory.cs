@@ -33,7 +33,7 @@ using Nop.Web.Models.Catalog;
 using Nop.Web.Models.Common;
 using Nop.Web.Models.Media;
 using Nop.Web.Models.ShoppingCart;
-
+using Nop.Services.Inventory; 
 namespace Nop.Web.Factories;
 
 /// <summary>
@@ -87,6 +87,7 @@ public partial class ProductModelFactory : IProductModelFactory
     protected readonly ShippingSettings _shippingSettings;
     protected readonly VendorSettings _vendorSettings;
     private static readonly char[] _separator = [','];
+    protected readonly IStockLedgerService _stockLedgerService;
 
     #endregion
 
@@ -134,7 +135,8 @@ public partial class ProductModelFactory : IProductModelFactory
         OrderSettings orderSettings,
         SeoSettings seoSettings,
         ShippingSettings shippingSettings,
-        VendorSettings vendorSettings)
+        VendorSettings vendorSettings,
+        IStockLedgerService stockLedgerService) 
     {
         _captchaSettings = captchaSettings;
         _catalogSettings = catalogSettings;
@@ -179,6 +181,7 @@ public partial class ProductModelFactory : IProductModelFactory
         _shippingSettings = shippingSettings;
         _vendorSettings = vendorSettings;
         _videoService = videoService;
+        _stockLedgerService = stockLedgerService;
     }
 
     #endregion
@@ -1473,6 +1476,12 @@ public partial class ProductModelFactory : IProductModelFactory
             AllowAddingOnlyExistingAttributeCombinations = product.AllowAddingOnlyExistingAttributeCombinations,
             DisplayAttributeCombinationImagesOnly = product.DisplayAttributeCombinationImagesOnly
         };
+
+        var stockLedger = await _stockLedgerService.GetEntryAsync(product.Id);
+        if (stockLedger != null){
+            model.VerdeMartStockIsStale = stockLedger.IsStale;
+            model.VerdeMartStockLastUpdatedUtc = stockLedger.LastUpdatedAtUtc;
+        }
 
         //automatically generate product description?
         if (_seoSettings.GenerateProductMetaDescription && string.IsNullOrEmpty(model.MetaDescription))

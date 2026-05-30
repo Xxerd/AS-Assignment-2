@@ -27,6 +27,7 @@ using Nop.Services.Vendors;
 using Nop.Web.Factories;
 using Nop.Web.Models.Catalog;
 using NUnit.Framework;
+using Nop.Services.Inventory;
 
 namespace Nop.Tests.Nop.Web.Tests.Public.Factories;
 
@@ -155,7 +156,62 @@ public class ProductModelFactoryTests : WebTest
 
     public class ProductModelFactoryForTest : ProductModelFactory
     {
-        public ProductModelFactoryForTest(CaptchaSettings captchaSettings, CatalogSettings catalogSettings, CustomerSettings customerSettings, GpsrSettings gpsrSettings, ICategoryService categoryService, ICurrencyService currencyService, ICustomerService customerService, ICustomWishlistService customWishlistService, IDateRangeService dateRangeService, IDateTimeHelper dateTimeHelper, IDownloadService downloadService, IGenericAttributeService genericAttributeService, IJsonLdModelFactory jsonLdModelFactory, ILocalizationService localizationService, IManufacturerService manufacturerService, IPermissionService permissionService, IPictureService pictureService, IPriceCalculationService priceCalculationService, IPriceFormatter priceFormatter, IProductAttributeParser productAttributeParser, IProductAttributeService productAttributeService, IProductReviewService productReviewService, IProductService productService, IProductTagService productTagService, IProductTemplateService productTemplateService, IReviewTypeService reviewTypeService, IShoppingCartService shoppingCartService, ISpecificationAttributeService specificationAttributeService, IStaticCacheManager staticCacheManager, IStoreContext storeContext, IStoreService storeService, IShoppingCartModelFactory shoppingCartModelFactory, ITaxService taxService, IUrlRecordService urlRecordService, IVendorService vendorService, IVideoService videoService, IWebHelper webHelper, IWorkContext workContext, MediaSettings mediaSettings, OrderSettings orderSettings, SeoSettings seoSettings, ShippingSettings shippingSettings, VendorSettings vendorSettings) : base(captchaSettings, catalogSettings, customerSettings, gpsrSettings, categoryService, currencyService, customerService, customWishlistService, dateRangeService, dateTimeHelper, downloadService, genericAttributeService, jsonLdModelFactory, localizationService, manufacturerService, permissionService, pictureService, priceCalculationService, priceFormatter, productAttributeParser, productAttributeService, productReviewService, productService, productTagService, productTemplateService, reviewTypeService, shoppingCartService, specificationAttributeService, staticCacheManager, storeContext, storeService, shoppingCartModelFactory, taxService, urlRecordService, vendorService, videoService, webHelper, workContext, mediaSettings, orderSettings, seoSettings, shippingSettings, vendorSettings)
+        public ProductModelFactoryForTest(
+            CaptchaSettings captchaSettings, 
+            CatalogSettings catalogSettings, 
+            CustomerSettings customerSettings, 
+            GpsrSettings gpsrSettings, 
+            ICategoryService categoryService, 
+            ICurrencyService currencyService, 
+            ICustomerService customerService, 
+            ICustomWishlistService customWishlistService, 
+            IDateRangeService dateRangeService, 
+            IDateTimeHelper dateTimeHelper, 
+            IDownloadService downloadService, 
+            IGenericAttributeService genericAttributeService, 
+            IJsonLdModelFactory jsonLdModelFactory, 
+            ILocalizationService localizationService, 
+            IManufacturerService manufacturerService, 
+            IPermissionService permissionService, 
+            IPictureService pictureService, 
+            IPriceCalculationService priceCalculationService, 
+            IPriceFormatter priceFormatter, 
+            IProductAttributeParser productAttributeParser, 
+            IProductAttributeService productAttributeService, 
+            IProductReviewService productReviewService, 
+            IProductService productService, 
+            IProductTagService productTagService, 
+            IProductTemplateService productTemplateService, 
+            IReviewTypeService reviewTypeService, 
+            IShoppingCartService shoppingCartService, 
+            ISpecificationAttributeService specificationAttributeService, 
+            IStaticCacheManager staticCacheManager, 
+            IStoreContext storeContext, 
+            IStoreService storeService, 
+            IShoppingCartModelFactory shoppingCartModelFactory, 
+            ITaxService taxService, 
+            IUrlRecordService urlRecordService, 
+            IVendorService vendorService, 
+            IVideoService videoService, 
+            IWebHelper webHelper, 
+            IWorkContext workContext, 
+            MediaSettings mediaSettings, 
+            OrderSettings orderSettings, 
+            SeoSettings seoSettings, 
+            ShippingSettings shippingSettings, 
+            VendorSettings vendorSettings,
+            IStockLedgerService stockLedgerService)  // ← ADD THIS PARAMETER (LAST)
+            : base(captchaSettings, catalogSettings, customerSettings, gpsrSettings, 
+                  categoryService, currencyService, customerService, customWishlistService, 
+                  dateRangeService, dateTimeHelper, downloadService, genericAttributeService, 
+                  jsonLdModelFactory, localizationService, manufacturerService, permissionService, 
+                  pictureService, priceCalculationService, priceFormatter, productAttributeParser, 
+                  productAttributeService, productReviewService, productService, productTagService, 
+                  productTemplateService, reviewTypeService, shoppingCartService, specificationAttributeService, 
+                  staticCacheManager, storeContext, storeService, shoppingCartModelFactory, taxService, 
+                  urlRecordService, vendorService, videoService, webHelper, workContext, mediaSettings, 
+                  orderSettings, seoSettings, shippingSettings, vendorSettings, 
+                  stockLedgerService)  // ← PASS TO BASE CONSTRUCTOR
         {
         }
 

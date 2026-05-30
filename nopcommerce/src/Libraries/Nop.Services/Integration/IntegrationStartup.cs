@@ -19,6 +19,7 @@ namespace Nop.Services.Integration;
 /// Phase 1: RabbitMQ publisher singleton + RabbitMqConfig binding.
 /// Phase 2: outbox writer (scoped, shares the ambient DB transaction)
 ///          and the publisher task (transient — one per tick).
+/// Phase 4.5: TrackingUpdatedHandler for QAS-4 cross-channel order visibility.
 /// IConsumer&lt;T&gt; implementations are auto-registered by NopStartup.
 /// </summary>
 public partial class IntegrationStartup : INopStartup
@@ -37,6 +38,8 @@ public partial class IntegrationStartup : INopStartup
         services.AddScoped<IIdempotencyGuard, IdempotencyGuard>();
 
         services.AddScoped<IIntegrationEventHandler<StockPickedEvent>, WmsStockPickedHandler>();
+        // Phase 4.5 — QAS-4: WMS shipment dispatched → update Shipment.TrackingNumber
+        services.AddScoped<IIntegrationEventHandler<TrackingUpdatedEvent>, TrackingUpdatedHandler>();
         services.AddHostedService<RabbitMqConsumerHostedService>();
 
         // Carrier circuit breaker (Block E / QAS-3)

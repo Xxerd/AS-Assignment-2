@@ -1,0 +1,32 @@
+@{
+    // Simplified banner - just checks ViewBag for stale stock flag
+    var hasStaleStock = ViewBag.HasStaleStockInCart == true;
+}
+
+@if (hasStaleStock)
+{
+    <div class="alert alert-warning verdemart-stale-banner">
+        <i class="fas fa-clock"></i>
+        <strong>Stock Information:</strong>
+        Some items in your cart have stock information that hasn't been updated recently.
+        Please proceed to checkout or <a href="/contactus">contact us</a> for real-time availability.
+    </div>
+}
+
+<style>
+    .verdemart-stale-banner {
+        margin: 15px 0;
+        padding: 12px 20px;
+        border-left: 4px solid #ffc107;
+        background-color: #fff3cd;
+        color: #856404;
+        border-radius: 4px;
+    }
+    .verdemart-stale-banner i {
+        margin-right: 10px;
+    }
+    .verdemart-stale-banner a {
+        color: #856404;
+        text-decoration: underline;
+    }
+</style>

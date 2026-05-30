@@ -24,12 +24,18 @@ namespace Nop.Services.Integration.Messaging;
 /// services (IStockLedgerService, IIdempotencyGuard) get a clean unit
 /// of work. Messages are ACK'd only after the handler succeeds; on
 /// failure they are NACK'd without requeue to avoid poison-message loops.
+///
+/// Phase 4.5: binding key broadened from "wms.stock.#" to "wms.#" so
+/// that "wms.shipment.dispatched" events are also received and routed
+/// to TrackingUpdatedHandler (QAS-4).
 /// </summary>
 public partial class RabbitMqConsumerHostedService : IHostedService, IDisposable
 {
     protected const string QueueName = "verdemart.nopcommerce.wms";
-    protected const string BindingKey = "wms.stock.#";
+    // Broadened from "wms.stock.#" to "wms.#" to also capture shipment events (Phase 4.5)
+    protected const string BindingKey = "wms.#";
     protected const string StockPickedKey = "wms.stock.picked";
+    protected const string TrackingUpdatedKey = "wms.shipment.dispatched";
 
     protected readonly RabbitMqConfig _config;
     protected readonly IServiceScopeFactory _scopeFactory;
@@ -144,6 +150,21 @@ public partial class RabbitMqConsumerHostedService : IHostedService, IDisposable
                     .GetRequiredService<IIntegrationEventHandler<StockPickedEvent>>();
 
                 await handler.HandleAsync(@event);
+            }
+            else if (routingKey == TrackingUpdatedKey)
+            {
+                // Phase 4.5 — QAS-4: WMS shipment dispatched event
+                var @event = JsonSerializer.Deserialize<TrackingUpdatedEvent>(json,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+                var handler = scope.ServiceProvider
+                    .GetRequiredService<IIntegrationEventHandler<TrackingUpdatedEvent>>();
+
+                await handler.HandleAsync(@event);
+            }
+            else
+            {
+                _logger.LogDebug("RabbitMQ consumer: unhandled routing key '{RoutingKey}' — message discarded", routingKey);
             }
 
             success = true;

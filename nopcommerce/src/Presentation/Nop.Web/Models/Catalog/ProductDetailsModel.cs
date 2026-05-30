@@ -124,6 +124,18 @@ public partial record ProductDetailsModel : BaseNopEntityModel, IMetaTagsSupport
 
     public bool InStock { get; set; }
 
+    // ========== PHASE 4.3: STALE STOCK INDICATOR PROPERTIES ==========
+    /// <summary>
+    /// VerdeMart: Indicates whether the stock data from WMS is stale
+    /// (no updates received within the staleness threshold)
+    /// </summary>
+    public bool VerdeMartStockIsStale { get; set; }
+    
+    /// <summary>
+    /// VerdeMart: UTC timestamp of the last WMS stock update
+    /// </summary>
+    public DateTime? VerdeMartStockLastUpdatedUtc { get; set; }
+
     public bool AllowAddingOnlyExistingAttributeCombinations { get; set; }
 
     #region Nested Classes

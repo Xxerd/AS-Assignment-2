@@ -1,4 +1,5 @@
 ﻿@model ProductDetailsModel
+
 @if (!string.IsNullOrWhiteSpace(Model.StockAvailability) || Model.DisplayBackInStockSubscription)
 {
     <div class="availability">
@@ -9,6 +10,19 @@
                 <span class="value" id="stock-availability-value-@Model.Id">@Model.StockAvailability</span>
             </div>
         }
+        
+        @* VerdeMart Phase 4.3 — Stale stock indicator (ADR-003)
+           When the WMS has not sent an update recently, we show an "as of"
+           message rather than hiding the problem silently. Copy uses
+           "as of" not "may be wrong" per the ADR decision. *@
+        @if (Model.VerdeMartStockIsStale && Model.VerdeMartStockLastUpdatedUtc.HasValue)
+        {
+            <div class="verdemart-stale-stock" style="margin-top:4px; font-size:0.85em; color:#856404; background:#fff3cd; border:1px solid #ffc107; border-radius:4px; padding:4px 8px; display:inline-block;">
+                <span>&#9432;</span>
+                Stock as of @Model.VerdeMartStockLastUpdatedUtc.Value.ToLocalTime().ToString("HH:mm") &mdash; live data temporarily unavailable.
+            </div>
+        }
+        
         @await Html.PartialAsync("_BackInStockSubscription", Model)
     </div>
 }
