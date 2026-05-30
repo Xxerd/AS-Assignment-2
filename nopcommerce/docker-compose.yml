@@ -24,6 +24,15 @@ services:
             MSSQL_PID: "Express"
         volumes:
             - nopcommerce_data:/var/opt/mssql
+    carrier_api:
+        image: wiremock/wiremock:3.9.1
+        container_name: verdemart_carrier_api
+        command: ["--global-response-templating", "--verbose"]
+        ports:
+            - "8084:8080"
+        volumes:
+            - ../compose/wiremock-carrier:/home/wiremock:ro
+
     rabbitmq:
         image: "rabbitmq:3-management"
         container_name: verdemart_rabbitmq

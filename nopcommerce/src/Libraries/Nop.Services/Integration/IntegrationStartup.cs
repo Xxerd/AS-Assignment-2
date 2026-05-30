@@ -4,6 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Nop.Core.Configuration;
 using Nop.Core.Domain.Integration;
 using Nop.Core.Infrastructure;
+using Nop.Services.Carriers;
+using Nop.Services.Carriers.Tasks;
 using Nop.Services.Integration.Consumers;
 using Nop.Services.Integration.Idempotency;
 using Nop.Services.Integration.Messaging;
@@ -36,6 +38,14 @@ public partial class IntegrationStartup : INopStartup
 
         services.AddScoped<IIntegrationEventHandler<StockPickedEvent>, WmsStockPickedHandler>();
         services.AddHostedService<RabbitMqConsumerHostedService>();
+
+        // Carrier circuit breaker (Block E / QAS-3)
+        var carrierConfig = appSettings.Get<CarrierConfig>();
+        services.AddSingleton(carrierConfig);
+        services.AddSingleton<ICircuitBreakerStateMonitor, CircuitBreakerStateMonitor>();
+        services.AddSingleton<IRateFallbackProvider, CachedRateFallbackProvider>();
+        services.AddSingleton<ICarrierAdapter, CarrierApiAdapter>();
+        services.AddTransient<CarrierRateRefreshTask>();
     }
 
     public virtual void Configure(IApplicationBuilder application)
